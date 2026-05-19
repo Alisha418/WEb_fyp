@@ -1,6 +1,6 @@
 {
-  "buildCommand": "npm run build",
-  "outputDirectory": "build",
+  "buildCommand": "cd neat-now-AdminPanel-Web-noor && npm install && npm run build",
+  "outputDirectory": "neat-now-AdminPanel-Web-noor/build",
   "rewrites": [
     {
       "source": "/api/(.*)",
