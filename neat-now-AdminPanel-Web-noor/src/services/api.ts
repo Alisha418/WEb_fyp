@@ -14,11 +14,18 @@ interface ImportMeta {
   readonly env: ImportMetaEnv;
 }
 
-// Dynamic API URL - use network IP for remote clients
+// Local dev: direct EC2/LAN URL. Vercel (HTTPS): use `/api` — proxied in vercel.json (no mixed-content block).
 const getApiBaseUrl = () => {
-  if (import.meta.env.VITE_API_URL) return import.meta.env.VITE_API_URL;
-  const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-  return isLocalhost ? 'http://127.0.0.1:8000/api' : `http://${window.location.hostname}:8000/api`;
+  const envUrl = (import.meta.env.VITE_API_URL || '').trim();
+  if (envUrl) return envUrl;
+  const host = window.location.hostname;
+  if (host === 'localhost' || host === '127.0.0.1') {
+    return 'http://127.0.0.1:8000/api';
+  }
+  if (host.endsWith('.vercel.app')) {
+    return '/api';
+  }
+  return `http://${host}:8000/api`;
 };
 
 const API_BASE_URL = getApiBaseUrl();

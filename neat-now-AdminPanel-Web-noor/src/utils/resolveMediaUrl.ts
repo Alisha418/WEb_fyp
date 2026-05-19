@@ -17,6 +17,13 @@ export function getBackendOrigin(): string {
   const raw = (import.meta as ImportMeta & { env: { VITE_API_URL?: string } }).env
     .VITE_API_URL;
   const api = typeof raw === 'string' ? raw.trim() : '';
+  // Vercel: VITE_API_URL=/api — same-origin; media via /media proxy in vercel.json
+  if (api.startsWith('/')) {
+    if (typeof window !== 'undefined') {
+      return window.location.origin;
+    }
+    return '';
+  }
   if (api && api.includes('://')) {
     return trimTrailingSlashes(api.replace(/\/api\/?$/, ''));
   }
@@ -24,6 +31,9 @@ export function getBackendOrigin(): string {
     return 'http://127.0.0.1:8000';
   }
   const h = window.location.hostname;
+  if (h.endsWith('.vercel.app')) {
+    return window.location.origin;
+  }
   const isLocal = h === 'localhost' || h === '127.0.0.1';
   return isLocal ? 'http://127.0.0.1:8000' : `http://${h}:8000`;
 }
@@ -70,8 +80,13 @@ export function resolveMediaUrl(value: unknown): string | undefined {
   if (v.startsWith('data:') || v.startsWith('blob:')) return v;
 
   const origin = getBackendOrigin();
+  const apiEnv = (
+    (import.meta as ImportMeta & { env: { VITE_API_URL?: string } }).env.VITE_API_URL || ''
+  ).trim();
   const useSameOriginMedia =
-    typeof import.meta !== 'undefined' && import.meta.env?.DEV === true;
+    (typeof import.meta !== 'undefined' && import.meta.env?.DEV === true) ||
+    apiEnv.startsWith('/') ||
+    (typeof window !== 'undefined' && window.location.hostname.endsWith('.vercel.app'));
 
   const toFinal = (pathFromRoot: string): string => {
     const p = pathFromRoot.startsWith('/') ? pathFromRoot : `/${pathFromRoot}`;
