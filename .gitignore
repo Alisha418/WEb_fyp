@@ -1,2 +1,4 @@
 .vercel
 neat-now-AdminPanel-Web-noor/public/neatnow_yolov8_best.onnx
+
+.env*.local

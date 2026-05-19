@@ -1,5 +1,11 @@
 import apiClient from './api';
 import { Report, ReportStatus } from '../types';
+import { resolveMediaUrl } from '../utils/resolveMediaUrl';
+
+function resolveReportImageUrl(url: string | null | undefined): string {
+  if (!url || !String(url).trim()) return '';
+  return resolveMediaUrl(url) ?? String(url).trim();
+}
 import {
   approximateAreaFromCoordinates,
   dedupeLocationParts,
@@ -274,9 +280,9 @@ class ReportService {
         classification: report.waste_type as Report['wasteType'],
       },
       description: `${report.waste_type || 'Waste'} reported at ${location}`,
-      beforeImage: report.image_before,
-      afterImage: report.image_after || undefined,
-      aiVerifiedImage: report.ai_image || undefined,
+      beforeImage: resolveReportImageUrl(report.image_before),
+      afterImage: resolveReportImageUrl(report.image_after) || undefined,
+      aiVerifiedImage: resolveReportImageUrl(report.ai_image) || undefined,
       urgency: calculateUrgency(report),
       lat: lat || 40.7128,
       lng: lng || -74.0060,
@@ -587,8 +593,8 @@ class ReportService {
           classification: report.waste_type as any
         },
         description: `${report.waste_type || 'Waste'} reported at ${location}`,
-        beforeImage: report.image_before,
-        afterImage: report.image_after || undefined,
+        beforeImage: resolveReportImageUrl(report.image_before),
+        afterImage: resolveReportImageUrl(report.image_after) || undefined,
         urgency:  calculateUrgency(report),
         lat: lat || 40.7128,
         lng: lng || -74.0060,

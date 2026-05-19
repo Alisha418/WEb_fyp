@@ -8,6 +8,7 @@ import { mapWorkerFromBackend } from '../types/worker';
 import type { AiVerificationPayload } from './AdminAiVerificationDialog';
 import { ReportAiDetectionModal } from './ReportAiDetectionModal';
 import { resolveMediaUrl } from '../utils/resolveMediaUrl';
+import { ImageWithFallback } from './figma/ImageWithFallback';
 import { subscribeLiveWorkerLocations, type LiveWorkerLocation } from '../services/firebaseLiveTracking';
 import { orderActiveWorkersByProximity, filterToLiveActiveWorkers } from '../utils/workerProximity';
 
@@ -638,9 +639,9 @@ export function ReportDetailModal({
               <div className="space-y-3">
                 <label className="block text-sm font-semibold text-slate-300 flex items-center gap-2">📸 Before Image</label>
                 <div className="relative group rounded-xl overflow-hidden border-2 border-slate-700 hover:border-emerald-500/50 transition-all">
-                  <img 
-                    src={report.beforeImage} 
-                    alt="Before" 
+                  <ImageWithFallback
+                    src={report.beforeImage}
+                    alt="Before"
                     className="w-full h-64 object-cover group-hover:scale-105 transition-transform duration-300"
                   />
                 </div>
@@ -668,9 +669,9 @@ export function ReportDetailModal({
                 <div className="space-y-3">
                   <label className="block text-sm font-semibold text-slate-300 flex items-center gap-2">✨ After Image</label>
                   <div className="relative group rounded-xl overflow-hidden border-2 border-slate-700 hover:border-teal-500/50 transition-all">
-                    <img 
-                      src={report.afterImage} 
-                      alt="After" 
+                    <ImageWithFallback
+                      src={report.afterImage}
+                      alt="After"
                       className="w-full h-64 object-cover group-hover:scale-105 transition-transform duration-300"
                     />
                   </div>
@@ -692,9 +693,9 @@ export function ReportDetailModal({
                     onClick={() => setShowAiImageModal(true)}
                     className="w-full h-64 overflow-hidden rounded-lg border border-emerald-500/30 bg-emerald-500/5 hover:bg-emerald-500/10 hover:border-emerald-500/50 transition-all cursor-pointer group relative"
                   >
-                    <img 
-                      src={report.aiVerifiedImage} 
-                      alt="AI Analysis" 
+                    <ImageWithFallback
+                      src={report.aiVerifiedImage}
+                      alt="AI Analysis"
                       className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                     />
                     <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-colors flex items-center justify-center">
