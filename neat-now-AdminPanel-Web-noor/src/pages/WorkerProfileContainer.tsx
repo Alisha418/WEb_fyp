@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { WorkerProfile } from './WorkerProfile';
 import WorkerService from '../services/workerService';
 import { mapWorkerFromBackend } from '../types/worker';
+import { isPendingWorkloadReport, type ReportLike } from '../utils/dashboardStats';
 
 // Transform backend worker data to frontend Worker interface
 interface Worker {
@@ -57,19 +58,37 @@ export function WorkerProfileContainer({ workerId, onBack }: WorkerProfileContai
       (assignment.location && String(assignment.location).trim()) ||
       (assignment.address && String(assignment.address).trim()) ||
       '';
-    const submittedAtRaw = assignment.created_at || assignment.submitted_at || assignment.assigned_at;
+    const submittedAtRaw =
+      assignment.submitted_at ||
+      assignment.created_at ||
+      assignment.assigned_at ||
+      assignment.accepted_at;
     return {
-      id: assignment.id || assignment.report_id || '',
+      id: String(assignment.id || assignment.report_id || ''),
       location: loc,
       status: assignment.status || '',
       reportedBy: assignment.reported_by || 'Reported by Citizen',
       submittedAt: submittedAtRaw ? new Date(submittedAtRaw) : new Date(),
-      assignedAt: assignment.assigned_at ? new Date(assignment.assigned_at) : undefined,
+      assignedAt: assignment.assigned_at
+        ? new Date(assignment.assigned_at)
+        : assignment.accepted_at
+          ? new Date(assignment.accepted_at)
+          : undefined,
       resolvedAt: assignment.resolved_at ? new Date(assignment.resolved_at) : undefined,
       wasteType: assignment.waste_type || assignment.category || '',
       priority: assignment.priority || 'normal',
     };
   };
+
+  const toReportLike = (report: any, workerRef: { id: string; name: string }): ReportLike => ({
+    status: report.status,
+    workerId: workerRef.id,
+    workerName: report.worker_name || workerRef.name,
+    citizenId: report.citizen_id != null ? String(report.citizen_id) : undefined,
+    reportSource: report.report_source,
+    submittedAt: report.submitted_at,
+    is_unassigned: report.is_unassigned,
+  });
 
   // Transform backend activity to frontend ActivityLog format
   const transformActivity = (activity: any): ActivityLog => ({
@@ -91,7 +110,7 @@ export function WorkerProfileContainer({ workerId, onBack }: WorkerProfileContai
         WorkerService.getWorkerStats(workerId),
         WorkerService. getWorkerAssignments(workerId),
         WorkerService.getWorkerActivity(workerId),
-        WorkerService.getWorkerReports(workerId, { status: 'Assigned', page_size: 20 }),
+        WorkerService.getWorkerReports(workerId, { page_size: 50 }),
       ]);
 
       // Transform and set worker data from backend worker + backend statistics.
@@ -109,15 +128,17 @@ export function WorkerProfileContainer({ workerId, onBack }: WorkerProfileContai
         avgCompletionTime: Number(perf.avg_resolution_time_hours ?? 0),
         // Success metric stays rating-based; fallback to worker avg rating.
         rating: Number(mappedWorker.rating || 0),
-        // Worker profile status mirrors tracking/login availability display.
-        active: Boolean(mappedWorker.active),
+        // Active/Inactive = app session (logged in online vs logged out), same as Workers list.
+        active: Boolean(mappedWorker.isTracking),
         image: mappedWorker.image,
       });
 
-      // Current assignments: only in-progress work.
+      const workerRef = { id: mappedWorker.id, name: mappedWorker.name };
+
+      // Assignments: in-progress work only (backend assignments endpoint).
       setCurrentAssignments(
-        assignmentsData
-          .filter((a: any) => a.status === 'In Progress')
+        (Array.isArray(assignmentsData) ? assignmentsData : [])
+          .filter((a: any) => String(a?.status || '').trim() === 'In Progress')
           .map(transformAssignment)
       );
 
@@ -125,7 +146,7 @@ export function WorkerProfileContainer({ workerId, onBack }: WorkerProfileContai
       const pendingList = Array.isArray(pendingSource) ? pendingSource : [];
       setPendingReports(
         pendingList
-          .filter((r: any) => (r?.status || '').toLowerCase() === 'assigned')
+          .filter((r: any) => isPendingWorkloadReport(toReportLike(r, workerRef)))
           .map(transformAssignment)
       );
 

@@ -501,9 +501,19 @@ export function WorkerProfile({
                 )}
               </div>
               
-              {/* Status indicator - professional badge */}
-              <div className="absolute bottom-2 right-2 flex items-center gap-2 px-3 py-1.5 bg-gradient-to-r from-emerald-500 to-teal-500 rounded-full shadow-md shadow-emerald-600/60 group-hover:scale-110 transition-transform border-2 border-white/50 backdrop-blur-md">
-                <div className="w-2 h-2 bg-white rounded-full animate-pulse"></div>
+              {/* Online status: logged in vs logged out (matches Workers list) */}
+              <div
+                className={`absolute bottom-2 right-2 flex items-center gap-2 px-3 py-1.5 rounded-full shadow-md group-hover:scale-110 transition-transform border-2 border-white/50 backdrop-blur-md ${
+                  worker.active
+                    ? 'bg-gradient-to-r from-emerald-500 to-teal-500 shadow-emerald-600/60'
+                    : 'bg-gradient-to-r from-slate-600 to-slate-700 shadow-slate-900/60'
+                }`}
+              >
+                <div
+                  className={`w-2 h-2 rounded-full ${
+                    worker.active ? 'bg-white animate-pulse' : 'bg-slate-300'
+                  }`}
+                />
                 <span className="text-xs font-bold text-white tracking-wide">
                   {worker.active ? 'Active' : 'Inactive'}
                 </span>
@@ -558,7 +568,7 @@ export function WorkerProfile({
                     }`}
                   >
                     <div className={`w-4 h-4 rounded-full mr-3 ${worker.active ? 'bg-emerald-300' : 'bg-red-300'} animate-pulse drop-shadow-lg`}></div>
-                    <span>{worker.active ? 'Active & Ready' : 'Inactive'}</span>
+                    <span>{worker.active ? 'Active' : 'Inactive'}</span>
                   </span>
                   <div className="text-xs text-slate-400 font-mono tracking-widest uppercase">
                     ✓ Updated {new Date().toLocaleDateString()}
@@ -739,7 +749,7 @@ export function WorkerProfile({
             </div>
             <div>
               <h2 className="text-lg font-black text-white tracking-tight">Assignments</h2>
-              <p className="text-xs text-slate-400 mt-1 font-medium">{currentAssignments.length} active task{currentAssignments.length !== 1 ? 's' : ''}</p>
+              <p className="text-xs text-slate-400 mt-1 font-medium">{currentAssignments.length} in progress task{currentAssignments.length !== 1 ? 's' : ''}</p>
             </div>
           </div>
           <div className="px-4 py-2 bg-gradient-to-r from-amber-500/20 to-amber-600/10 border border-amber-500/40 rounded-lg lg:flex-shrink-0">
@@ -810,7 +820,7 @@ export function WorkerProfile({
           <div className="text-center py-16 text-slate-400">
             <AlertCircle className="w-24 h-24 mx-auto mb-4 text-slate-600/50" />
             <p className="font-bold text-xl mb-2">No Current Assignments</p>
-            <p className="text-sm text-slate-500">This worker is free to receive new tasks</p>
+            <p className="text-sm text-slate-500">No tasks in progress right now</p>
           </div>
         )}
       </div>
