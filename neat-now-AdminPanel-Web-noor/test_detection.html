@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Detection Tester</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            max-width: 600px;
+            width: 100%;
+            padding: 40px;
+        }
+        
+        h1 {
+            color: #333;
+            margin-bottom: 30px;
+            text-align: center;
+            font-size: 28px;
+        }
+        
+        .upload-section {
+            margin-bottom: 30px;
+        }
+        
+        .upload-area {
+            border: 3px dashed #667eea;
+            border-radius: 8px;
+            padding: 40px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s;
+            background: #f8f9ff;
+        }
+        
+        .upload-area:hover {
+            border-color: #764ba2;
+            background: #f0f2ff;
+        }
+        
+        .upload-area.drag-over {
+            border-color: #764ba2;
+            background: #e8ebff;
+        }
+        
+        .upload-area p {
+            color: #666;
+            margin-bottom: 10px;
+        }
+        
+        .upload-area input[type="file"] {
+            display: none;
+        }
+        
+        .btn {
+            display: inline-block;
+            padding: 10px 20px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: background 0.3s;
+        }
+        
+        .btn:hover {
+            background: #764ba2;
+        }
+        
+        .btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        
+        #preview {
+            max-width: 100%;
+            height: auto;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: none;
+        }
+        
+        .results {
+            display: none;
+            background: #f8f9ff;
+            padding: 20px;
+            border-radius: 8px;
+            margin-top: 20px;
+        }
+        
+        .results.show {
+            display: block;
+        }
+        
+        .result-item {
+            background: white;
+            padding: 12px;
+            border-radius: 6px;
+            margin-bottom: 10px;
+            border-left: 4px solid #667eea;
+        }
+        
+        .result-item strong {
+            color: #333;
+        }
+        
+        .confidence {
+            display: inline-block;
+            background: #667eea;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            margin-left: 10px;
+            font-weight: 600;
+        }
+        
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 20px;
+        }
+        
+        .loading.show {
+            display: block;
+        }
+        
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 10px;
+        }
+        
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+        
+        .error {
+            background: #ffe8e8;
+            color: #d32f2f;
+            padding: 12px;
+            border-radius: 6px;
+            margin-top: 20px;
+            display: none;
+        }
+        
+        .error.show {
+            display: block;
+        }
+        
+        #canvas {
+            max-width: 100%;
+            border-radius: 8px;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>🤖 AI Waste Detection Tester</h1>
+
+        <div class="upload-section">
+            <div class="upload-area" id="uploadArea">
+                <p>📸 Drag & drop an image here or click to select</p>
+                <p style="font-size: 12px; color: #999;">Supported: JPG, PNG, WebP</p>
+                <input type="file" id="fileInput" accept="image/*">
+                <button class="btn" onclick="document.getElementById('fileInput').click()">Choose Image</button>
+            </div>
+        </div>
+
+        <img id="preview">
+
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <p>🧠 Analyzing image...</p>
+        </div>
+
+        <div class="error" id="error"></div>
+
+        <canvas id="canvas"></canvas>
+
+        <div class="results" id="results">
+            <h3 style="margin-bottom: 15px; color: #333;">✅ Detection Results</h3>
+            <div id="resultsList"></div>
+        </div>
+    </div>
+
+    <script>
+        const uploadArea = document.getElementById('uploadArea');
+        const fileInput = document.getElementById('fileInput');
+        const preview = document.getElementById('preview');
+        const loading = document.getElementById('loading');
+        const results = document.getElementById('results');
+        const resultsList = document.getElementById('resultsList');
+        const errorDiv = document.getElementById('error');
+        const canvas = document.getElementById('canvas');
+
+        // Drag and drop
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('drag-over');
+        });
+
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('drag-over');
+        });
+
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('drag-over');
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                fileInput.files = files;
+                handleFileSelect();
+            }
+        });
+
+        // File input change
+        fileInput.addEventListener('change', handleFileSelect);
+
+        function handleFileSelect() {
+            const file = fileInput.files[0];
+            if (!file) return;
+
+            // Show preview
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                preview.src = e.target.result;
+                preview.style.display = 'block';
+                results.classList.remove('show');
+                errorDiv.classList.remove('show');
+                canvas.style.display = 'none';
+
+                // Send to backend
+                sendToBackend(file);
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function sendToBackend(file) {
+            loading.classList.add('show');
+            results.classList.remove('show');
+            errorDiv.classList.remove('show');
+
+            const formData = new FormData();
+            formData.append('image', file);
+
+            fetch('http://localhost:5000/api/detect', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(response => response.json())
+                .then(data => {
+                    loading.classList.remove('show');
+
+                    if (data.status === 'success') {
+                        displayResults(data.detections, file);
+                    } else {
+                        showError(data.error || 'Detection failed');
+                    }
+                })
+                .catch(error => {
+                    loading.classList.remove('show');
+                    showError('Error: ' + error.message + '. Make sure backend is running at http://localhost:5000');
+                });
+        }
+
+        function displayResults(detections, file) {
+            // Display results list
+            resultsList.innerHTML = '';
+            detections.forEach((det, idx) => {
+                const item = document.createElement('div');
+                item.className = 'result-item';
+                item.innerHTML = `
+                    <strong>#${idx + 1}</strong> ${det.class}
+                    <span class="confidence">${(det.confidence * 100).toFixed(1)}%</span>
+                    <div style="margin-top: 5px; font-size: 12px; color: #666;">
+                        Position: X(${Math.round(det.x1)}-${Math.round(det.x2)}) Y(${Math.round(det.y1)}-${Math.round(det.y2)})
+                    </div>
+                `;
+                resultsList.appendChild(item);
+            });
+
+            results.classList.add('show');
+
+            // Draw bounding boxes on canvas
+            drawDetectionsOnImage(file, detections);
+        }
+
+        function drawDetectionsOnImage(file, detections) {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const img = new Image();
+                img.onload = () => {
+                    canvas.width = img.width;
+                    canvas.height = img.height;
+                    const ctx = canvas.getContext('2d');
+
+                    // Draw image
+                    ctx.drawImage(img, 0, 0);
+
+                    // Draw bounding boxes
+                    const colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A', '#98D8C8', '#F7DC6F', '#BB8FCE', '#85C1E2'];
+
+                    detections.forEach((det, idx) => {
+                        const color = colors[idx % colors.length];
+
+                        // Draw box
+                        ctx.strokeStyle = color;
+                        ctx.lineWidth = 2;
+                        ctx.strokeRect(det.x1, det.y1, det.x2 - det.x1, det.y2 - det.y1);
+
+                        // Draw label background
+                        const label = `${det.class} ${(det.confidence * 100).toFixed(0)}%`;
+                        const fontSize = 12;
+                        ctx.font = `bold ${fontSize}px Arial`;
+                        const textMetrics = ctx.measureText(label);
+                        const textWidth = textMetrics.width + 10;
+                        const textHeight = fontSize + 6;
+
+                        ctx.fillStyle = color;
+                        ctx.fillRect(det.x1, det.y1 - textHeight - 4, textWidth, textHeight);
+
+                        // Draw label text
+                        ctx.fillStyle = 'white';
+                        ctx.font = `bold ${fontSize}px Arial`;
+                        ctx.fillText(label, det.x1 + 5, det.y1 - 8);
+                    });
+
+                    canvas.style.display = 'block';
+                };
+                img.src = e.target.result;
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function showError(message) {
+            errorDiv.textContent = '❌ ' + message;
+            errorDiv.classList.add('show');
+        }
+    </script>
+</body>
+
+</html>
