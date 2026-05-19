@@ -38,6 +38,11 @@ export function getBackendOrigin(): string {
   return isLocal ? 'http://127.0.0.1:8000' : `http://${h}:8000`;
 }
 
+function isS3OrCdnHost(hostname: string): boolean {
+  const h = hostname.toLowerCase();
+  return h.includes('amazonaws.com') || h.includes('cloudfront.net');
+}
+
 function isLocalBackendHost(hostname: string): boolean {
   const h = hostname.toLowerCase();
   return (
@@ -45,21 +50,21 @@ function isLocalBackendHost(hostname: string): boolean {
     h === '127.0.0.1' ||
     h.startsWith('192.168.') ||
     h.startsWith('10.') ||
-    h === '10.0.2.2'
+    h === '10.0.2.2' ||
+  // EC2 public IP (and any IPv4 backend) — rewrite to /media on Vercel, not raw http://IP
+    /^\d{1,3}(\.\d{1,3}){3}$/.test(h)
   );
 }
 
 function mediaPathFromAbsoluteHttp(v: string): string | undefined {
   try {
     const parsed = new URL(v);
-    // S3 / CDN URLs must load directly, not via Vite /media proxy
-    if (!isLocalBackendHost(parsed.hostname)) {
+    if (isS3OrCdnHost(parsed.hostname)) {
       return undefined;
     }
     if (parsed.pathname.startsWith('/media/')) {
       return `${parsed.pathname}${parsed.search}`;
     }
-    // Django sometimes returns http://host/profiles/... without /media prefix
     if (parsed.pathname.startsWith('/profiles/')) {
       return `/media${parsed.pathname}${parsed.search}`;
     }
@@ -96,8 +101,16 @@ export function resolveMediaUrl(value: unknown): string | undefined {
     return `${origin}${p}`;
   };
 
-  // Absolute URL
+  // Absolute URL (http://13.228.42.236/media/... from DB, S3 https://..., etc.)
   if (/^https?:\/\//i.test(v)) {
+    try {
+      const parsed = new URL(v);
+      if (isS3OrCdnHost(parsed.hostname)) {
+        return v;
+      }
+    } catch {
+      /* fall through */
+    }
     const path = mediaPathFromAbsoluteHttp(v);
     if (path) {
       return toFinal(path);
