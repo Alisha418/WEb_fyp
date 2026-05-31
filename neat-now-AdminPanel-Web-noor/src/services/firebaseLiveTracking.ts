@@ -61,13 +61,25 @@ export const subscribeLiveWorkerLocations = (
   onChange: (locations: LiveWorkerLocation[]) => void,
 ): (() => void) => {
   const workersRef = ref(db, 'workers_live');
+  console.log('[LiveWorkers] Firebase: subscribing to workers_live at', (db as any)?.app?.options?.databaseURL ?? '(unknown URL)');
 
-  return onValue(workersRef, (snapshot) => {
-    const next = parseSnapshot(snapshot);
-    // Always trust the latest snapshot. If a worker logs out, their node is removed
-    // and the list must clear immediately (a long "empty grace" would keep ghosts).
-    onChange(next);
-  });
+  return onValue(
+    workersRef,
+    (snapshot) => {
+      const next = parseSnapshot(snapshot);
+      // Always trust the latest snapshot. If a worker logs out, their node is removed
+      // and the list must clear immediately (a long "empty grace" would keep ghosts).
+      onChange(next);
+    },
+    // The Realtime Database SDK swallows permission errors unless you pass
+    // an error callback. Logging it here is the difference between a silent
+    // empty map and an actionable "PERMISSION_DENIED" line in DevTools.
+    (error) => {
+      const err = error as Error & { code?: string };
+      console.error('[LiveWorkers] Firebase subscription error:', err?.code, err?.message, err);
+      onChange([]);
+    },
+  );
 };
 
 export const fetchLiveWorkerLocations = async (): Promise<LiveWorkerLocation[]> => {
