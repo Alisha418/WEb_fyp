@@ -583,7 +583,27 @@ export function MapView({ reports, trendData, onReportClick }: MapViewProps) {
   const [selectedZone, setSelectedZone] = useState('All');
   const [selectedHotspotLocation, setSelectedHotspotLocation] = useState(null as string | null);
   const [statusFilter, setStatusFilter] = useState('all' as StatusFilter);
-  const [showActiveWorkers, setShowActiveWorkers] = useState(false);
+  // Default ON so the map and right-side "Active Workers Live" panel show pins
+  // as soon as the page opens (matches prior product behaviour). The admin's
+  // preference is persisted to localStorage so toggling OFF/ON sticks across
+  // reloads.
+  const [showActiveWorkers, setShowActiveWorkers] = useState<boolean>(() => {
+    try {
+      const stored = window.localStorage.getItem('map.showActiveWorkers');
+      if (stored === null) return true;
+      return stored === 'true';
+    } catch {
+      return true;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem('map.showActiveWorkers', String(showActiveWorkers));
+    } catch {
+      // ignore storage failures (private mode etc.)
+    }
+  }, [showActiveWorkers]);
   const [hoveredReport, setHoveredReport] = useState(null as Report | null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null as string | null);
