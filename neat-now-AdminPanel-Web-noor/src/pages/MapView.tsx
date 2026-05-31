@@ -605,11 +605,6 @@ export function MapView({ reports, trendData, onReportClick }: MapViewProps) {
   const [localReports, setLocalReports] = useState(reports as Report[]);
   const [selectedReport, setSelectedReport] = useState(null as Report | null);
   const [liveWorkerLocations, setLiveWorkerLocations] = useState([] as LiveWorkerLocation[]);
-  // Workers that the backend EXPLICITLY reports as is_tracking=false
-  // (e.g., admin force-inactive). Used as a soft "hide" signal only —
-  // never used to gate display when the backend call itself fails, so
-  // a transient /workers/ outage cannot blank out the live map.
-  const [explicitlyInactiveWorkerIds, setExplicitlyInactiveWorkerIds] = useState(new Set<string>());
   const [workerNamesFromBackend, setWorkerNamesFromBackend] = useState(new Map<string, string>());
   const [locateWorkerTarget, setLocateWorkerTarget] = useState(null as { lat: number; lng: number; workerId: string } | null);
   const [hotspotDisplayLabels, setHotspotDisplayLabels] = useState({} as Record<string, string>);
@@ -653,31 +648,39 @@ export function MapView({ reports, trendData, onReportClick }: MapViewProps) {
   }, [reports]);
 
   useEffect(() => {
-    const unsub = subscribeLiveWorkerLocations(setLiveWorkerLocations);
+    const unsub = subscribeLiveWorkerLocations((locs) => {
+      console.log('[LiveWorkers] Firebase snapshot:', locs.length, 'workers', locs);
+      setLiveWorkerLocations(locs);
+    });
     return () => unsub();
   }, []);
 
+  // Pull worker names from backend purely to enrich tooltips / panel labels.
+  // We do NOT use backend `is_tracking` to decide who shows on the map —
+  // Firebase `workers_live` is the single source of truth for "currently live".
+  // Past AND-gating with backend caused the live map to silently go blank
+  // whenever the two stores drifted (mobile-side sync failures, stale
+  // is_tracking flags from past logouts, transient /workers/ outages).
   const loadWorkerTrackingState = useCallback(async () => {
     try {
       const response = await workerService.getWorkers({ page_size: 500 });
       const rows = response?.results || [];
       const nameMap = new Map<string, string>();
-      const inactive = new Set<string>();
       rows.forEach((w: any) => {
         const id = String(w?.worker_id ?? w?.id ?? w?.account_id ?? '').trim();
         const name = String(w?.account?.name ?? w?.name ?? '').trim();
         if (id && name) nameMap.set(id, name);
-        // Only collect EXPLICIT inactivity so a missing/failed response
-        // never hides a live worker. Backend is authoritative only when
-        // it actually answers and says is_tracking === false.
-        if (id && w?.is_tracking === false) inactive.add(id);
       });
+      console.log(
+        '[LiveWorkers] Backend /workers/ returned',
+        rows.length,
+        'rows; name map ids:',
+        Array.from(nameMap.keys()),
+      );
       setWorkerNamesFromBackend(nameMap);
-      setExplicitlyInactiveWorkerIds(inactive);
     } catch (e) {
-      console.warn('Failed to load worker tracking state for live map:', e);
-      // Intentionally do NOT clear previously known state — keep showing
-      // live Firebase pins so a transient API failure cannot empty the map.
+      console.warn('[LiveWorkers] Failed to load worker names from backend:', e);
+      // Keep previously known names — transient API errors must never blank the map.
     }
   }, []);
 
@@ -688,25 +691,29 @@ export function MapView({ reports, trendData, onReportClick }: MapViewProps) {
   }, [loadWorkerTrackingState]);
 
   /**
-   * Firebase `workers_live` is the source of truth for "currently live"
-   * (matches firebaseLiveTracking.ts + workerProximity.ts).
+   * Firebase `workers_live` is the SOLE source of truth for "currently live".
    *
-   * A worker is only hidden when the backend EXPLICITLY reports
-   * is_tracking=false (e.g., admin force-inactive). In that flow the
-   * Workers page also removes the Firebase node, so a stale ghost pin
-   * during the brief sync window is the only thing this guards against.
+   * Product contract:
+   *   - Worker logged in → pin present in workers_live (mobile pushes every 30s).
+   *   - Worker loses internet → last pin stays visible on the map (intended:
+   *     admin keeps seeing their last known location until connectivity returns).
+   *   - Worker logs out → mobile removes the node.
+   *   - Worker phone crashed / never logs out → admin uses "Force Inactive"
+   *     on the Workers page, which removes the node from workers_live.
    *
-   * Critically, we do NOT require backend is_tracking=true — that caused
-   * just-logged-in workers (whose mobile-side setWorkerTrackingStatus
-   * call may have failed or not yet propagated) to disappear from the
-   * map and "Active Workers Live" panel even though their live pin was
-   * actively being pushed every 30s.
+   * We deliberately apply NO staleness window and do NOT cross-check
+   * backend `is_tracking` — both contradict the above flow (a brief offline
+   * window must not hide a logged-in worker, and is_tracking drift was the
+   * original bug that emptied the live map).
    */
   const verifiedLiveWorkers = useMemo(() => {
-    return liveWorkerLocations.filter(
-      (w) => !explicitlyInactiveWorkerIds.has(String(w.workerId)),
+    console.log(
+      '[LiveWorkers] verifiedLiveWorkers ->',
+      liveWorkerLocations.length,
+      'firebase pins (Firebase is sole source of truth)',
     );
-  }, [liveWorkerLocations, explicitlyInactiveWorkerIds]);
+    return liveWorkerLocations;
+  }, [liveWorkerLocations]);
   
   const zones: string[] = ['All', ...Array.from(new Set(localReports.map((r: Report) => r.zone))) as string[]];
   console.log('📊 Zones available:', zones, 'Total reports:', localReports.length, 'Selected zone:', selectedZone);
