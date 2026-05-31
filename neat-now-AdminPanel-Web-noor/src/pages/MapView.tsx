@@ -605,7 +605,11 @@ export function MapView({ reports, trendData, onReportClick }: MapViewProps) {
   const [localReports, setLocalReports] = useState(reports as Report[]);
   const [selectedReport, setSelectedReport] = useState(null as Report | null);
   const [liveWorkerLocations, setLiveWorkerLocations] = useState([] as LiveWorkerLocation[]);
-  const [trackingWorkerIds, setTrackingWorkerIds] = useState(new Set<string>());
+  // Workers that the backend EXPLICITLY reports as is_tracking=false
+  // (e.g., admin force-inactive). Used as a soft "hide" signal only —
+  // never used to gate display when the backend call itself fails, so
+  // a transient /workers/ outage cannot blank out the live map.
+  const [explicitlyInactiveWorkerIds, setExplicitlyInactiveWorkerIds] = useState(new Set<string>());
   const [workerNamesFromBackend, setWorkerNamesFromBackend] = useState(new Map<string, string>());
   const [locateWorkerTarget, setLocateWorkerTarget] = useState(null as { lat: number; lng: number; workerId: string } | null);
   const [hotspotDisplayLabels, setHotspotDisplayLabels] = useState({} as Record<string, string>);
@@ -658,17 +662,22 @@ export function MapView({ reports, trendData, onReportClick }: MapViewProps) {
       const response = await workerService.getWorkers({ page_size: 500 });
       const rows = response?.results || [];
       const nameMap = new Map<string, string>();
-      const tracking = new Set<string>();
+      const inactive = new Set<string>();
       rows.forEach((w: any) => {
         const id = String(w?.worker_id ?? w?.id ?? w?.account_id ?? '').trim();
         const name = String(w?.account?.name ?? w?.name ?? '').trim();
         if (id && name) nameMap.set(id, name);
-        if (id && w?.is_tracking === true) tracking.add(id);
+        // Only collect EXPLICIT inactivity so a missing/failed response
+        // never hides a live worker. Backend is authoritative only when
+        // it actually answers and says is_tracking === false.
+        if (id && w?.is_tracking === false) inactive.add(id);
       });
       setWorkerNamesFromBackend(nameMap);
-      setTrackingWorkerIds(tracking);
+      setExplicitlyInactiveWorkerIds(inactive);
     } catch (e) {
       console.warn('Failed to load worker tracking state for live map:', e);
+      // Intentionally do NOT clear previously known state — keep showing
+      // live Firebase pins so a transient API failure cannot empty the map.
     }
   }, []);
 
@@ -678,10 +687,26 @@ export function MapView({ reports, trendData, onReportClick }: MapViewProps) {
     return () => clearInterval(interval);
   }, [loadWorkerTrackingState]);
 
-  /** Firebase pin + backend is_tracking must both be true (avoids ghost workers after force inactive). */
+  /**
+   * Firebase `workers_live` is the source of truth for "currently live"
+   * (matches firebaseLiveTracking.ts + workerProximity.ts).
+   *
+   * A worker is only hidden when the backend EXPLICITLY reports
+   * is_tracking=false (e.g., admin force-inactive). In that flow the
+   * Workers page also removes the Firebase node, so a stale ghost pin
+   * during the brief sync window is the only thing this guards against.
+   *
+   * Critically, we do NOT require backend is_tracking=true — that caused
+   * just-logged-in workers (whose mobile-side setWorkerTrackingStatus
+   * call may have failed or not yet propagated) to disappear from the
+   * map and "Active Workers Live" panel even though their live pin was
+   * actively being pushed every 30s.
+   */
   const verifiedLiveWorkers = useMemo(() => {
-    return liveWorkerLocations.filter((w) => trackingWorkerIds.has(String(w.workerId)));
-  }, [liveWorkerLocations, trackingWorkerIds]);
+    return liveWorkerLocations.filter(
+      (w) => !explicitlyInactiveWorkerIds.has(String(w.workerId)),
+    );
+  }, [liveWorkerLocations, explicitlyInactiveWorkerIds]);
   
   const zones: string[] = ['All', ...Array.from(new Set(localReports.map((r: Report) => r.zone))) as string[]];
   console.log('📊 Zones available:', zones, 'Total reports:', localReports.length, 'Selected zone:', selectedZone);
