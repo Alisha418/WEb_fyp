@@ -12,7 +12,11 @@ import { Report, ReportStatus } from '../types';
 import type { Worker } from '../types/worker';
 import { ReportDetailModal } from '../components/ReportDetailModal';
 import reportService from '../services/reportService';
-import { LiveWorkerLocation, subscribeLiveWorkerLocations } from '../services/firebaseLiveTracking';
+import {
+  LiveWorkerLocation,
+  removeLiveWorkerFromMap,
+  subscribeLiveWorkerLocations,
+} from '../services/firebaseLiveTracking';
 import workerService from '../services/workerService';
 import {
   dedupeLocationParts,
@@ -606,6 +610,13 @@ export function MapView({ reports, trendData, onReportClick }: MapViewProps) {
   const [selectedReport, setSelectedReport] = useState(null as Report | null);
   const [liveWorkerLocations, setLiveWorkerLocations] = useState([] as LiveWorkerLocation[]);
   const [workerNamesFromBackend, setWorkerNamesFromBackend] = useState(new Map<string, string>());
+  // Worker IDs the backend reports as actively tracking (is_tracking=true).
+  // This is NOT used to gate display — it is only used to identify orphan
+  // Firebase pins (pin exists but backend says the worker is not tracking)
+  // so we can auto-clean them, matching the product flow where logout /
+  // force-inactive are the only legitimate ways a tracking session ends.
+  const [trackingWorkerIds, setTrackingWorkerIds] = useState(new Set<string>());
+  const [orphanCleanupAttempted, setOrphanCleanupAttempted] = useState(new Set<string>());
   const [locateWorkerTarget, setLocateWorkerTarget] = useState(null as { lat: number; lng: number; workerId: string } | null);
   const [hotspotDisplayLabels, setHotspotDisplayLabels] = useState({} as Record<string, string>);
 
@@ -655,32 +666,38 @@ export function MapView({ reports, trendData, onReportClick }: MapViewProps) {
     return () => unsub();
   }, []);
 
-  // Pull worker names from backend purely to enrich tooltips / panel labels.
-  // We do NOT use backend `is_tracking` to decide who shows on the map —
-  // Firebase `workers_live` is the single source of truth for "currently live".
-  // Past AND-gating with backend caused the live map to silently go blank
-  // whenever the two stores drifted (mobile-side sync failures, stale
-  // is_tracking flags from past logouts, transient /workers/ outages).
+  // Pull worker names + tracking flags from backend. Names enrich tooltips
+  // and the live panel; the tracking set drives the orphan-cleanup safety
+  // net (see below). We deliberately do NOT use the tracking set as a hard
+  // display gate — Firebase `workers_live` remains the source of truth for
+  // who is currently live (so a brief mobile sync hiccup or an internet
+  // outage on the worker's phone never silently blanks them off the map).
   const loadWorkerTrackingState = useCallback(async () => {
     try {
       const response = await workerService.getWorkers({ page_size: 500 });
       const rows = response?.results || [];
       const nameMap = new Map<string, string>();
+      const tracking = new Set<string>();
       rows.forEach((w: any) => {
         const id = String(w?.worker_id ?? w?.id ?? w?.account_id ?? '').trim();
         const name = String(w?.account?.name ?? w?.name ?? '').trim();
         if (id && name) nameMap.set(id, name);
+        if (id && w?.is_tracking === true) tracking.add(id);
       });
       console.log(
         '[LiveWorkers] Backend /workers/ returned',
         rows.length,
-        'rows; name map ids:',
+        'rows; tracking ids:',
+        Array.from(tracking),
+        'name map ids:',
         Array.from(nameMap.keys()),
       );
       setWorkerNamesFromBackend(nameMap);
+      setTrackingWorkerIds(tracking);
     } catch (e) {
-      console.warn('[LiveWorkers] Failed to load worker names from backend:', e);
-      // Keep previously known names — transient API errors must never blank the map.
+      console.warn('[LiveWorkers] Failed to load worker tracking state from backend:', e);
+      // Keep previously known state — transient API errors must never blank
+      // the map nor trigger spurious orphan cleanups.
     }
   }, []);
 
@@ -689,6 +706,62 @@ export function MapView({ reports, trendData, onReportClick }: MapViewProps) {
     const interval = setInterval(loadWorkerTrackingState, 15000);
     return () => clearInterval(interval);
   }, [loadWorkerTrackingState]);
+
+  /**
+   * Orphan-cleanup safety net.
+   *
+   * Product flow (defined by the user): the ONLY legitimate ways a tracking
+   * session ends are
+   *   (a) worker logs out — mobile removes its workers_live node, and
+   *   (b) admin uses "Force Inactive" — Workers.tsx removes the node.
+   *
+   * Both code paths set the backend `is_tracking` flag to false. So if we
+   * ever see a Firebase pin whose worker has `is_tracking !== true` in the
+   * backend, it's an orphan from a broken session (e.g. data left behind
+   * while the Firebase rules were expired, a worker that never properly
+   * logged in, etc.). We auto-remove those nodes so the admin map matches
+   * the product flow without requiring per-row manual intervention.
+   *
+   * Guards to keep this safe:
+   *   - We only act after the backend list has been seen at least once
+   *     (`trackingStateLoaded`). A transient /workers/ outage must never
+   *     cause us to wipe legitimate live pins.
+   *   - We track which IDs we have already attempted to clean
+   *     (`orphanCleanupAttempted`) so we don't fight a worker whose mobile
+   *     is actively re-pushing the pin every 30s — the next poll's tracking
+   *     set should pick them up as legitimate.
+   */
+  const trackingStateLoaded = trackingWorkerIds.size > 0 || workerNamesFromBackend.size > 0;
+  useEffect(() => {
+    if (!trackingStateLoaded) return;
+    if (liveWorkerLocations.length === 0) return;
+
+    const orphans = liveWorkerLocations.filter((w) => {
+      const id = String(w.workerId);
+      if (trackingWorkerIds.has(id)) return false;
+      if (orphanCleanupAttempted.has(id)) return false;
+      return true;
+    });
+
+    if (orphans.length === 0) return;
+
+    console.log(
+      '[LiveWorkers] Orphan cleanup: removing',
+      orphans.length,
+      'pin(s) from Firebase whose backend is_tracking !== true:',
+      orphans.map((w) => w.workerId),
+    );
+
+    setOrphanCleanupAttempted((prev) => {
+      const next = new Set(prev);
+      orphans.forEach((w) => next.add(String(w.workerId)));
+      return next;
+    });
+
+    orphans.forEach((w) => {
+      void removeLiveWorkerFromMap(String(w.workerId));
+    });
+  }, [liveWorkerLocations, trackingWorkerIds, trackingStateLoaded, orphanCleanupAttempted]);
 
   /**
    * Firebase `workers_live` is the SOLE source of truth for "currently live".
@@ -700,11 +773,12 @@ export function MapView({ reports, trendData, onReportClick }: MapViewProps) {
    *   - Worker logs out → mobile removes the node.
    *   - Worker phone crashed / never logs out → admin uses "Force Inactive"
    *     on the Workers page, which removes the node from workers_live.
+   *   - Orphan pin from a broken state → auto-cleaned by the effect above.
    *
-   * We deliberately apply NO staleness window and do NOT cross-check
-   * backend `is_tracking` — both contradict the above flow (a brief offline
-   * window must not hide a logged-in worker, and is_tracking drift was the
-   * original bug that emptied the live map).
+   * We deliberately apply NO staleness window and do NOT use backend
+   * `is_tracking` as a display gate here — both contradict the above flow
+   * (a brief offline window must not hide a logged-in worker, and gating on
+   * is_tracking was the original bug that silently emptied the live map).
    */
   const verifiedLiveWorkers = useMemo(() => {
     console.log(
